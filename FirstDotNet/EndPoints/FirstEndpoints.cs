@@ -1,74 +1,55 @@
+using System.Text.RegularExpressions;
+using FirstDotNet.Data;
 using FirstDotNet.Dtos;
+using FirstDotNet.Entities;
+using FirstDotNet.Maping;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 
 namespace FirstDotNet.EndPoints;
 public static class EndPoints
 {
-    private static readonly List<FristDto> firsts = [
-        new(
-            1,
-            "Street Fighter II",
-            "Fighting",
-            19.99M,
-            new DateOnly(1972,02,05)
-        ),
-        new(
-            2,
-            "Gta Vice city",
-            "RolePlaying",
-            19.99M,
-            new DateOnly(1972,02,05)
-        ),
-        new(
-            3,
-            "Gta San Andress",
-            "RolePlaying",
-            19.99M,
-            new DateOnly(1972,02,05)
-        ),
-        new(
-            4,
-            "FIFA 3",
-            "Spots",
-            19.99M,
-            new DateOnly(1972,02,05)
-        ),
-    ];
-    public static WebApplication MapFirstEndpoints(this WebApplication app){
-        app.MapGet("games",()=> firsts);
-        app.MapGet("games/{id}",(int id)=>{
-            FristDto? game = firsts.Find(first => first.Id == id);
-            return game is null ? Results.NotFound("id not found") : Results.Ok(game);
+    public static RouteGroupBuilder MapFirstEndpoints(this WebApplication app){
+        var gameRoute = app.MapGroup("games").WithParameterValidation();
+        gameRoute.MapGet("/",(GameStoreContext dbContext)=>
+         dbContext
+            .Games
+            .Include(game=>game.Genre)
+            .Select(game=>game.ToGameSummaryDto())
+            .AsNoTracking()
+        );
+
+        gameRoute.MapGet("/{id}",(int id,GameStoreContext dbContext)=>{
+            Game? game = dbContext.Games.Find(id);
+
+            return game is null ? 
+            Results.NotFound("id not found") : Results.Ok(game.ToGameDetailDto());
         }).WithName("GetFirst");
-        app.MapPost("games",(CreateFristDto newFirst)=>{
-            FristDto first = new(
-                firsts.Count +1,
-                newFirst.Name,
-                newFirst.Genre,
-                newFirst.Price,
-                newFirst.ReleaseDate
-            );
-            firsts.Add(first);
-            return Results.CreatedAtRoute("GetFirst",new {id = first.Id},first);
+
+        gameRoute.MapPost("/",(CreateFristDto newGame, GameStoreContext dbContext)=>{
+            Game game = newGame.ToEntity();
+            dbContext.Games.Add(game);
+            dbContext.SaveChanges();
+
+            return Results.CreatedAtRoute("GetFirst",new {id = game.Id },game.ToGameDetailDto());
         });
-        app.MapPut("games/{id}",(int id, UpdateFristDto updateFirst)=>{
-                var index = firsts.FindIndex(first=> first.Id == id);
-                if(index == -1){
+        gameRoute.MapPut("/{id}",(int id, UpdateFristDto updateFirst, GameStoreContext dbContext)=>{
+                var existingGame = dbContext.Games.Find(id);
+                if(existingGame is null){
                     return Results.NotFound("specidied Id not found");
                 }
-                firsts[index] = new FristDto(
-                    id,
-                    updateFirst.Name,
-                    updateFirst.Genre,
-                    updateFirst.Price,
-                    updateFirst.ReleaseDate
-                );
+                dbContext.Entry(existingGame)
+                .CurrentValues
+                .SetValues(updateFirst.ToEntity(id));
+                dbContext.SaveChanges();
                 return Results.Content("Updated Sucessfully");
             });
-            app.MapDelete("games/{id}",(int id)=>{
-                firsts.RemoveAll(game=> game.Id == id);
+        gameRoute.MapDelete("/{id}",(int id, GameStoreContext dbContext)=>{
+                dbContext.Games.Where(game=> game.Id == id)
+                .ExecuteDelete();
                 return Results.Content("Deleted Sucessfully");
             });
-        return app;
+        return gameRoute;
     }
 
 }

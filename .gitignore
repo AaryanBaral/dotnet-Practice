@@ -8,6 +8,7 @@ Logs/
 .vscode
 .DS_Store
 
+GameStore.db
 # Generated files
 project.lock.json
 .vs/
